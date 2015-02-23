@@ -22,7 +22,8 @@ PyInstaller
 Requirements
 ------------
 - Python: 
-   * 2.4 - 2.7 (Python 3 is not supported)
+   * 2.6 - 2.7 (Python 3 is not supported)
+   * PyCrypto_ 2.4+ (only if using bytecode encryption)
 
 - Windows (32bit/64bit):
    * Windows XP or newer.
@@ -37,7 +38,7 @@ Requirements
      distribution-package `binutils`.
 
 - Mac OS X (32/64bit):
-   * Mac OS X 10.4 (Tiger) or newer.
+   * Mac OS X 10.6 (Tiger) or newer.
 
 
 Installation
@@ -88,6 +89,7 @@ or simply use it direclty from the source (pyinstaller.py).
 
 
 
+.. _PyCrypto: https://www.dlitz.net/software/pycrypto/
 .. _pywin32: http://sourceforge.net/projects/pywin32/
 .. _`manual`: http://pythonhosted.org/PyInstaller
 .. _`changelog`: https://github.com/pyinstaller/pyinstaller/blob/develop/doc/CHANGES.txt

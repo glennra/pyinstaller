@@ -68,6 +68,8 @@ class CTOC(object):
         entrylen = struct.calcsize(self.ENTRYSTRUCT)
         rslt = []
         for (dpos, dlen, ulen, flag, typcd, nm) in self.data:
+            if isinstance(nm, unicode):
+                nm = nm.encode('utf-8')
             nmlen = len(nm) + 1       # add 1 for a '\0'
             # FIXME Why are here two versions? Is it safe to remove version 4?
             # version 4
@@ -333,7 +335,7 @@ class CArchive(pyi_archive.Archive):
                 postfix = ''
                 ulen = os.fstat(fh.fileno()).st_size
         except IOError:
-            print "Cannot find ('%s', '%s', %s, '%s')" % (nm, pathnm, flag, typcd)
+            print("Cannot find ('%s', '%s', %s, '%s')" % (nm, pathnm, flag, typcd))
             raise
 
         where = self.lib.tell()
