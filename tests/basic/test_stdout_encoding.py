@@ -11,19 +11,13 @@
 import sys
 
 
-frozen_encoding = str(sys.getfilesystemencoding())
+frozen_encoding = str(sys.stdout.encoding)
 
 
-# For various OS is encoding different.
-# On Windows it should be still mbcs.
-if sys.platform.startswith('win'):
-    encoding = 'mbcs'
-# On Mac OS X the value should be still the same.
-elif sys.platform.startswith('darwin'):
-    encoding = 'utf-8'
-# On Linux and other unixes it should be mostly 'UTF-8'.
-else:
-    encoding = 'UTF-8'
+# For various OS encoding is different.
+# On Windows it should be still cp850.  ## FIXME: Is this correct???  I don't have Windows!
+# On Linux, MAC OS X, and other unixes it should be mostly 'UTF-8'.
+encoding = 'cp850' if sys.platform.startswith('win') else 'UTF-8'
 
 
 print('Encoding expected: ' + encoding)

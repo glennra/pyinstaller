@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2014, PyInstaller Development Team.
+# Copyright (c) 2015, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License with exception
 # for distributing bootloader.
@@ -7,8 +7,8 @@
 # The full license is in the file COPYING.txt, distributed with this software.
 #-----------------------------------------------------------------------------
 
-# This is needed to bundle draft3.json and draft4.json files that come
-# with jsonschema module
+# Hook for appy.pod: https://pypi.python.org/pypi/appy/0.9.1
 
 from PyInstaller.hooks.hookutils import collect_data_files
-datas = collect_data_files('jsonschema')
+
+datas = collect_data_files('appy.pod')

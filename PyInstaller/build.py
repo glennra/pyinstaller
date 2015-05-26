@@ -17,6 +17,7 @@ import glob
 import imp
 import os
 import pprint
+import platform
 import py_compile
 import shutil
 import sys
@@ -433,7 +434,7 @@ class Analysis(Target):
 
         # Normalize paths in pathex and make them absolute.
         if pathex:
-            self.pathex = [absnormpath(path) for path in pathex]
+            self.pathex += [absnormpath(path) for path in pathex]
 
 
         self.hiddenimports = hiddenimports or []
@@ -785,10 +786,14 @@ def checkCache(fnm, strip=False, upx=False, dist_nm=None):
     # with relative install names. Caching on darwin does not work
     # since we need to modify binary headers to use relative paths
     # to dll depencies and starting with '@loader_path'.
-
-    if ((not strip and not upx and not is_darwin and not is_win)
-        or fnm.lower().endswith(".manifest")):
+    if not strip and not upx and not is_darwin and not is_win:
         return fnm
+
+    if dist_nm is not None and ":" in dist_nm:
+        # A file embedded in another pyinstaller build via multipackage
+        # No actual file exists to process
+        return fnm
+
     if strip:
         strip = True
     else:
@@ -803,7 +808,8 @@ def checkCache(fnm, strip=False, upx=False, dist_nm=None):
     # This allows parallel building of executables with different
     # Python versions as one user.
     pyver = ('py%d%s') % (sys.version_info[0], sys.version_info[1])
-    cachedir = os.path.join(CONFIGDIR, 'bincache%d%d_%s' % (strip, upx, pyver))
+    arch = platform.architecture()[0]
+    cachedir = os.path.join(CONFIGDIR, 'bincache%d%d_%s_%s' % (strip, upx, pyver, arch))
     if not os.path.exists(cachedir):
         os.makedirs(cachedir)
     cacheindexfn = os.path.join(cachedir, "index.dat")
@@ -831,6 +837,24 @@ def checkCache(fnm, strip=False, upx=False, dist_nm=None):
             if is_darwin:
                 dylib.mac_set_relative_dylib_deps(cachedfile, dist_nm)
             return cachedfile
+
+    # Change manifest and its deps to private assemblies
+    if fnm.lower().endswith(".manifest"):
+        manifest = winmanifest.Manifest()
+        manifest.filename = fnm
+        with open(fnm, "rb") as f:
+            manifest.parse_string(f.read())
+        if manifest.publicKeyToken:
+            logger.info("Changing %s into private assembly", os.path.basename(fnm))
+        manifest.publicKeyToken = None
+        for dep in manifest.dependentAssemblies:
+            # Exclude common-controls which is not bundled
+            if dep.name != "Microsoft.Windows.Common-Controls":
+                dep.publicKeyToken = None
+
+        manifest.writeprettyxml(cachedfile)
+        return cachedfile
+
     if upx:
         if strip:
             fnm = checkCache(fnm, strip=True, upx=False)
@@ -859,9 +883,16 @@ def checkCache(fnm, strip=False, upx=False, dist_nm=None):
     shutil.copy2(fnm, cachedfile)
     os.chmod(cachedfile, 0755)
 
-    if pyasm and fnm.lower().endswith(".pyd"):
-        # If python.exe has dependent assemblies, check for embedded manifest
-        # of cached pyd file because we may need to 'fix it' for pyinstaller
+    if os.path.splitext(fnm.lower())[1] in (".pyd", ".dll"):
+        # When shared assemblies are bundled into the app, they must be
+        # transformed into private assemblies or else the assembly
+        # loader will not search for them in the app folder. To support
+        # this, all manifests in the app must be modified to point to
+        # the private assembly.
+
+        # Also, if python.exe has dependent assemblies, check for
+        # embedded manifest of cached pyd file because we may need to
+        # 'fix it' for pyinstaller
         try:
             res = winmanifest.GetManifestResources(os.path.abspath(cachedfile))
         except winresource.pywintypes.error, e:
@@ -889,12 +920,17 @@ def checkCache(fnm, strip=False, upx=False, dist_nm=None):
                             logger.error(cachedfile)
                             logger.exception(exc)
                         else:
+                            # change manifest to private assembly
+                            if manifest.publicKeyToken:
+                                logger.info("Changing %s into a private assembly",
+                                            os.path.basename(fnm))
+                            manifest.publicKeyToken = None
+
                             # Fix the embedded manifest (if any):
                             # Extension modules built with Python 2.6.5 have
                             # an empty <dependency> element, we need to add
                             # dependentAssemblies from python.exe for
                             # pyinstaller
-                            olen = len(manifest.dependentAssemblies)
                             _depNames = set([dep.name for dep in
                                              manifest.dependentAssemblies])
                             for pydep in pyasm:
@@ -904,14 +940,19 @@ def checkCache(fnm, strip=False, upx=False, dist_nm=None):
                                                 pydep.name, cachedfile)
                                     manifest.dependentAssemblies.append(pydep)
                                     _depNames.update(pydep.name)
-                            if len(manifest.dependentAssemblies) > olen:
-                                try:
-                                    manifest.update_resources(os.path.abspath(cachedfile),
-                                                              [name],
-                                                              [language])
-                                except Exception, e:
-                                    logger.error(os.path.abspath(cachedfile))
-                                    raise
+
+                            # Change dep to private assembly
+                            for dep in manifest.dependentAssemblies:
+                                # Exclude common-controls which is not bundled
+                                if dep.name != "Microsoft.Windows.Common-Controls":
+                                    dep.publicKeyToken = None
+                            try:
+                                manifest.update_resources(os.path.abspath(cachedfile),
+                                                          [name],
+                                                          [language])
+                            except Exception, e:
+                                logger.error(os.path.abspath(cachedfile))
+                                raise
 
     if cmd:
         try:
@@ -1013,7 +1054,8 @@ class PKG(Target):
         logger.info("Building PKG (CArchive) %s", os.path.basename(self.name))
         trash = []
         mytoc = []
-        seen = {}
+        seenInms = {}
+        seenFnms = {}
         toc = addSuffixToExtensions(self.toc)
         # 'inm'  - relative filename inside a CArchive
         # 'fnm'  - absolute filename as it is on the file system.
@@ -1027,15 +1069,29 @@ class PKG(Target):
                 if self.exclude_binaries and typ != 'DEPENDENCY':
                     self.dependencies.append((inm, fnm, typ))
                 else:
+                    if typ == 'BINARY':
+                        # Avoid importing the same binary extension twice. This might
+                        # happen if they come from different sources (eg. once from
+                        # binary dependence, and once from direct import).
+                        if inm in seenInms:
+                            logger.warn("Two binaries added with the same internal "
+                                        "name. %s was placed at %s previously. "
+                                        "Skipping %s." %
+                                        (seenInms[inm], inm, fnm))
+                            continue
+
+                        # Warn if the same binary extension was included
+                        # with multiple internal names
+                        if fnm in seenFnms:
+                            logger.warn("One binary added with two internal "
+                                        "names. %s was placed at %s previously." %
+                                        (fnm, seenFnms[fnm]))
+                    seenInms[inm] = fnm
+                    seenFnms[fnm] = inm
+
                     fnm = checkCache(fnm, strip=self.strip_binaries,
                                      upx=(self.upx_binaries and (is_win or is_cygwin)),
                                      dist_nm=inm)
-                    # Avoid importing the same binary extension twice. This might
-                    # happen if they come from different sources (eg. once from
-                    # binary dependence, and once from direct import).
-                    if typ == 'BINARY' and fnm in seen:
-                        continue
-                    seen[fnm] = 1
 
                     mytoc.append((inm, fnm, self.cdict.get(typ, 0),
                                   self.xformdict.get(typ, 'b')))
@@ -1117,7 +1173,7 @@ class EXE(Target):
         self.uac_admin = kwargs.get('uac_admin', False)
         self.uac_uiaccess = kwargs.get('uac_uiaccess', False)
 
-        if config['hasUPX']: 
+        if config['hasUPX']:
            self.upx = kwargs.get('upx', False)
         else:
            self.upx = False
@@ -1126,7 +1182,7 @@ class EXE(Target):
         # app. New format includes only exename.
         #
         # Ignore fullpath in the 'name' and prepend DISTPATH or WORKPATH.
-        # DISTPATH - onefile 
+        # DISTPATH - onefile
         # WORKPATH - onedir
         if self.exclude_binaries:
             # onedir mode - create executable in WORKPATH.
@@ -1134,7 +1190,7 @@ class EXE(Target):
         else:
             # onefile mode - create executable in DISTPATH.
             self.name = os.path.join(DISTPATH, os.path.basename(self.name))
-        
+
         # Base name of the EXE file without .exe suffix.
         base_name = os.path.basename(self.name)
         if is_win or is_cygwin:
@@ -1232,6 +1288,15 @@ class EXE(Target):
             tmpnm = tempfile.mktemp()
             shutil.copy2(exe, tmpnm)
             os.chmod(tmpnm, 0755)
+
+            # In onefile mode, dependencies in the onefile manifest
+            # refer to files that are about to be unpacked when the exe
+            # is run. The Windows DLL loader doesn't know that and
+            # refuses to run the exe at all. Since the .exe does not in
+            # fact depend on those, and the actual manifest will be used
+            # later when an activation context is created, all
+            # dependencies are removed from the embedded manifest. 
+            self.manifest.dependentAssemblies = []
             self.manifest.update_resources(tmpnm, [1]) # 1 for executable
             trash.append(tmpnm)
             exe = tmpnm
@@ -1363,7 +1428,7 @@ class COLLECT(Target):
         Target.__init__(self)
         self.strip_binaries = kws.get('strip', False)
 
-        if config['hasUPX']: 
+        if config['hasUPX']:
            self.upx_binaries = kws.get('upx', False)
         else:
            self.upx_binaries = False
@@ -1424,7 +1489,7 @@ class COLLECT(Target):
                 os.makedirs(todir)
             if typ in ('EXTENSION', 'BINARY'):
                 fnm = checkCache(fnm, strip=self.strip_binaries,
-                                 upx=(self.upx_binaries and (is_win or is_cygwin)), 
+                                 upx=(self.upx_binaries and (is_win or is_cygwin)),
                                  dist_nm=inm)
             if typ != 'DEPENDENCY':
                 shutil.copy(fnm, tofnm)
@@ -1456,7 +1521,7 @@ class BUNDLE(Target):
         self.icon = os.path.abspath(self.icon)
 
         Target.__init__(self)
- 
+
         # .app bundle is created in DISTPATH.
         self.name = kws.get('name', None)
         base_name = os.path.basename(self.name)
@@ -1479,9 +1544,9 @@ class BUNDLE(Target):
         for arg in args:
             if isinstance(arg, EXE):
                 self.toc.append((os.path.basename(arg.name), arg.name, arg.typ))
-                self.toc.extend(arg.dependencies) 
+                self.toc.extend(arg.dependencies)
                 self.strip = arg.strip
-                self.upx = arg.upx 
+                self.upx = arg.upx
             elif isinstance(arg, TOC):
                 self.toc.extend(arg)
                 # TOC doesn't have a strip or upx attribute, so there is no way for us to
@@ -1489,7 +1554,7 @@ class BUNDLE(Target):
             elif isinstance(arg, COLLECT):
                 self.toc.extend(arg.toc)
                 self.strip = arg.strip_binaries
-                self.upx = arg.upx_binaries 
+                self.upx = arg.upx_binaries
             else:
                 logger.info("unsupported entry %s", arg.__class__.__name__)
         # Now, find values for app filepath (name), app name (appname), and name
@@ -1654,8 +1719,8 @@ class TOC(UserList.UserList):
             logger.info("TOC found a %s, not a tuple", entry)
             raise TypeError("Expected tuple, not %s." % type(entry).__name__)
         name, path, typecode = entry
-        if typecode == "BINARY":
-            # Normalize the case for binary files only (to avoid duplicates
+        if typecode in ["BINARY", "DATA"]:
+            # Normalize the case for binary files and data files only (to avoid duplicates
             # for different cases under Windows). We can't do that for
             # Python files because the import semantic (even at runtime)
             # depends on the case.
@@ -1934,7 +1999,7 @@ def build(spec, distpath, workpath, clean_build):
     for pth in (DISTPATH, WORKPATH):
         if not os.path.exists(WORKPATH):
             os.makedirs(WORKPATH)
- 
+
     # Executing the specfile. The executed .spec file will use DISTPATH and
     # WORKPATH values.
     execfile(spec)

@@ -42,6 +42,20 @@ is_freebsd = sys.platform.startswith('freebsd')
 # platform specific details for Mac in PyInstaller.
 is_unix = is_linux or is_solar or is_aix or is_freebsd
 
+# In Python 3 built-in function raw_input() was renamed to just 'input()'.
+try:
+    stdin_input = raw_input
+except NameError:
+    stdin_input = input
+
+
+
+# UserList class is moved to 'collections.UserList in Python 3.
+try:
+    from UserList import UserList
+except:
+    from collections import UserList
+
 
 # Correct extension ending: 'c' or 'o'
 if __debug__:
@@ -78,7 +92,11 @@ _OLD_OPTIONS = [
 
 
 # Options for python interpreter when invoked in a subprocess.
-_PYOPTS = __debug__ and '-O' or ''
+if __debug__:
+    # Python started *without* -O
+    _PYOPTS = ''
+else:
+    _PYOPTS = '-O'
 
 
 try:
@@ -109,13 +127,29 @@ else:
         return relative
 
 
-# Some code parts needs to behave different when running in virtualenv.
-# 'real_prefix is for virtualenv,
-# 'base_prefix' is for PEP 405 venv (new in Python 3.3)
-venv_real_prefix = (getattr(sys, 'real_prefix', None) or
-                    getattr(sys, 'base_prefix', None))
-is_virtualenv = bool(venv_real_prefix)
+# In a virtual environment created by virtualenv (github.com/pypa/virtualenv)
+# there exists sys.real_prefix with the path to the base Python
+# installation from which the virtual environment was created. This is true regardless of
+# the version of Python used to execute the virtualenv command, 2.x or 3.x.
+#
+# In a virtual environment created by the venv module available in
+# the Python 3 standard lib, there exists sys.base_prefix with the path to
+# the base implementation. This does not exist in Python 2.x or in
+# a virtual environment created by virtualenv.
+#
+# The following code creates compat.is_venv and is.virtualenv
+# that are True when running a virtual environment, and also
+# compat.base_prefix and compat.venv_real_prefix with the path to the
+# base Python installation.
 
+base_prefix = getattr( sys, 'real_prefix',
+                       getattr( sys, 'base_prefix', sys.prefix )
+                        )
+venv_real_prefix = base_prefix
+is_venv = is_virtualenv = base_prefix != sys.prefix
+
+# Forward-compatibility with python3-branch.
+modname_tkinter = 'Tkinter'
 
 def architecture():
     """
@@ -152,7 +186,7 @@ def machine():
     for bootloader.
 
     PyInstaller is reported to work even on ARM architecture. For that
-    case functions system() and architecture() are not enough. 
+    case functions system() and architecture() are not enough.
     Path to bootloader has to be composed from system(), architecture()
     and machine() like:
         'Linux-32bit-arm'

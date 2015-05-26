@@ -38,22 +38,33 @@ else:
 
 
 _PACKAGES = [
-    'six',
     'docutils',
+    'IPython',
     'jinja2',
+    'keyring',
+    'markdown',
     'MySQL-python',
     'numpy ',
     'PIL',
-    #'pyenchant',
-    'pyodbc',
-    'pytz',
-    'sphinx',
-    'simplejson',
-    'SQLAlchemy',
-    #'wxPython',
-    'IPython',
-    'zope.interface',
+    'pycparser',
     pycrypto,
+    'pyenchant',
+    'pyexcelerate',
+    'pylint',
+    'pyodbc',
+    'pyttsx',
+    'pytz',
+    'pyusb', # package usb
+    'qt4reactor',
+    'requests',
+    'scapy',
+    'simplejson',
+    'six',
+    'sphinx',
+    'SQLAlchemy',
+    'twisted',
+    #'wxPython',
+    'zope.interface',
 ]
 
 
