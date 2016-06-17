@@ -63,6 +63,13 @@ _win_includes = set([
     r'mfcm100\.dll',
     r'mfcm100u\.dll',
 
+    r'msvcr120\.dll',
+    r'msvcp120\.dll',
+
+    r'msvcr140\.dll',
+    r'msvcp140\.dll',
+    r'vcruntime140\.dll',
+
     # Python 3.5 uses the Univeral C Runtime which consists of these DLLs:
     r'api-ms-win-core.*',
     r'api-ms-win-crt.*',
