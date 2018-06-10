@@ -241,11 +241,8 @@ def test_PyQt5_uic(tmpdir, pyi_builder, data_dir):
     pyi_builder.test_script('pyi_lib_PyQt5-uic.py')
 
 
-@xfail(is_darwin, reason='Please help debug this. See issue #3233.')
-@importorskip('PyQt5')
-def test_PyQt5_QWebEngine(pyi_builder, data_dir):
-    pyi_builder.test_source(
-        """
+def produce_test_source_for_QWebEngine(data_dir):
+    return """
         from PyQt5.QtWidgets import QApplication
         from PyQt5.QtWebEngineWidgets import QWebEngineView
         from PyQt5.QtCore import QUrl, QTimer
@@ -259,7 +256,48 @@ def test_PyQt5_QWebEngine(pyi_builder, data_dir):
             # Display the web page for two seconds after it loads.
             lambda ok: QTimer.singleShot(2000, app.quit))
         app.exec_()
-        """.format(data_dir.join('test_web_page.html').strpath))
+        """.format(data_dir.join('test_web_page.html').strpath)
+
+
+@xfail(is_darwin, reason='Please help debug this. See issue #3233.')
+@importorskip('PyQt5')
+def test_PyQt5_QWebEngine(pyi_builder, data_dir):
+    pyi_builder.test_source(produce_test_source_for_QWebEngine(data_dir))
+
+
+# This tests running the QWebEngine on OS X. To do so, the test must:
+#
+# 1. Run in onedir mode only.
+# 2. Run only on the .app bundle.
+# 3. Be run with the correct command-line arguments.
+@skipif(is_win or is_linux, reason="This test is only for OS X.")
+def test_PyQt5_QWebEngine_OSX(pyi_builder, data_dir):
+    # 1. Run only a onedir build -- onefile builds don't work.
+    if pyi_builder._mode != 'onedir':
+        pytest.skip('The QWebEngine .app bundle only supports onedir mode.')
+
+    # 2. Only test the Mac .app bundle, by modifying the executes this fixture
+    #    runs.
+    #
+    #    First, get the current unbound ``_find_executables`` function.
+    _old_find_executables = type(pyi_builder)._find_executables
+    # Create a replacement function that selects just the .app bundle.
+    def _replacement_find_executables(self, name):
+        # Use the existing function to find two executables.
+        path_to_onedir, path_to_app_bundle = self._old_find_executables(name)
+        # Select just the app bundle.
+        return [path_to_app_bundle]
+    # Use this in the fixture by transforming ``_replacement_find_executables``
+    # into a bound function. See https://stackoverflow.com/a/28060251 and
+    # https://docs.python.org/3/howto/descriptor.html.
+    pyi_builder._find_executables = \
+        _replacement_find_executables.__get__(pyi_builder)
+
+    # 3. Run the test with specific command-line arguments.
+    pyi_builder.test_source(produce_test_source_for_QWebEngine(data_dir),
+        pyi_args=[
+            '--windowed',
+            '--osx-bundle-identifier', 'org.qt-project.Qt.QtWebEngineCore'])
 
 
 @importorskip('PyQt5')
