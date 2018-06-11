@@ -253,8 +253,9 @@ def produce_test_source_for_QWebEngine(data_dir):
         view.load(QUrl.fromLocalFile(r'{}'))
         view.show()
         view.page().loadFinished.connect(
-            # Display the web page for two seconds after it loads.
-            lambda ok: QTimer.singleShot(2000, app.quit))
+            # Display the web page for one second after it loads, because if you call app.quit
+            # on loadFinished the page may not have been rendered.
+            lambda ok: QTimer.singleShot(1000, app.quit))
         app.exec_()
         """.format(data_dir.join('test_web_page.html').strpath)
 
