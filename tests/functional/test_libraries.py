@@ -280,11 +280,11 @@ def test_PyQt5_QWebEngine_OSX(pyi_builder, data_dir):
     #    runs.
     #
     #    First, get the current unbound ``_find_executables`` function.
-    _old_find_executables = type(pyi_builder)._find_executables
+    _old_find_executables = pyi_builder._find_executables
     # Create a replacement function that selects just the .app bundle.
     def _replacement_find_executables(self, name):
         # Use the existing function to find two executables.
-        path_to_onedir, path_to_app_bundle = self._old_find_executables(name)
+        path_to_onedir, path_to_app_bundle = _old_find_executables(name)
         # Select just the app bundle.
         return [path_to_app_bundle]
     # Use this in the fixture by transforming ``_replacement_find_executables``
