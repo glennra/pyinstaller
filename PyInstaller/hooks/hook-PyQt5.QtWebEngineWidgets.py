@@ -26,7 +26,7 @@ if compat.is_darwin:
                           'QtWebEngineProcess.app']
     # These resource files for QtWebEngineProcess.app must located in .app/Content/Resources
     # see https://doc.qt.io/qt-5.10/qtwebengine-deploying.html
-    datas += [(os.path.join(data_path, *resources, '*'), '.')]
+    datas += [(os.path.join(data_path, *resources), '.')]
     datas += collect_system_data_files(
         os.path.join(data_path, *resources),
         os.path.join(*(rel_data_path + resources[:-1])), True)
